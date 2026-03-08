@@ -12,7 +12,7 @@ YoruDownloader is a modern, high-performance media acquisition tool built with J
 
 <img src="https://raw.githubusercontent.com/CubixGamer12/YoruDownloader/main/Screenshot_20260308-221838_Yoru Downloader.png" width="30%" />
 <img src="https://raw.githubusercontent.com/CubixGamer12/YoruDownloader/main/Screenshot_20260308-221901_Yoru Downloader.png" width="30%" />
-<img src="https://raw.githubusercontent.com/CubixGamer12/YoruDownloader/main/screenshots/screenshot_3.png" width="30%" />
+<img src="https://raw.githubusercontent.com/CubixGamer12/YoruDownloader/main/Screenshot_20260308-221912_Yoru Downloader.png" width="30%" />
 
 <div align="center">
 <h1>Project Status</h1>
