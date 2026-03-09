@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -32,18 +34,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.yorudownloader.ui.theme.YoruDownloaderTheme
 
@@ -138,6 +146,13 @@ fun MainScreen(viewModel: MainViewModel) {
         if (viewModel.showSettingsDialog) {
             SettingsDialog(viewModel)
         }
+        
+        if (viewModel.showPreview && viewModel.videoPreviewUrl != null) {
+            VideoPreviewDialog(
+                url = viewModel.videoPreviewUrl!!,
+                onDismiss = { viewModel.showPreview = false }
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -161,37 +176,90 @@ fun MainScreen(viewModel: MainViewModel) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedTextField(
-                        value = viewModel.url,
-                        onValueChange = {
-                            viewModel.url = it
-                            if (it.startsWith("http")) viewModel.fetchInfo()
-                        },
-                        placeholder = { Text(stringResource(R.string.search_placeholder)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        trailingIcon = {
-                            Row {
-                                if (viewModel.url.isNotEmpty()) {
-                                    IconButton(onClick = {
+                    Box {
+                        OutlinedTextField(
+                            value = viewModel.url,
+                            onValueChange = {
+                                viewModel.url = it
+                                if (it.startsWith("http")) {
+                                    viewModel.fetchInfo()
+                                    viewModel.searchSuggestions.clear()
+                                } else {
+                                    viewModel.fetchSuggestions(it)
+                                }
+                            },
+                            placeholder = { Text(stringResource(R.string.search_placeholder)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            trailingIcon = {
+                                Row {
+                                    if (viewModel.url.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            if (!viewModel.url.startsWith("http")) {
+                                                viewModel.searchYoutube(viewModel.url)
+                                            } else {
+                                                viewModel.url = ""
+                                            }
+                                        }) {
+                                            Icon(if (viewModel.url.startsWith("http")) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                                        }
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            enabled = !viewModel.isDownloading,
+                            keyboardOptions = KeyboardOptions(
+                                imeAction = ImeAction.Search
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    if (viewModel.url.isNotEmpty()) {
                                         if (!viewModel.url.startsWith("http")) {
                                             viewModel.searchYoutube(viewModel.url)
                                         } else {
-                                            viewModel.url = ""
+                                            viewModel.fetchInfo()
                                         }
-                                    }) {
-                                        Icon(if (viewModel.url.startsWith("http")) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                                    }
+                                }
+                            ),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            )
+                        )
+
+                        // Suggestions Dropdown
+                        if (viewModel.searchSuggestions.isNotEmpty() && !viewModel.url.startsWith("http") && !viewModel.isDownloading) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 64.dp)
+                                    .heightIn(max = 250.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                elevation = CardDefaults.cardElevation(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                LazyColumn {
+                                    items(viewModel.searchSuggestions) { suggestion ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    viewModel.url = suggestion
+                                                    viewModel.searchYoutube(suggestion)
+                                                }
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                                            Text(suggestion, style = MaterialTheme.typography.bodyLarge)
+                                        }
                                     }
                                 }
                             }
-                        },
-                        singleLine = true,
-                        enabled = !viewModel.isDownloading,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                        )
-                    )
+                        }
+                    }
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(stringResource(R.string.format), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -303,61 +371,141 @@ fun MainScreen(viewModel: MainViewModel) {
 
 @Composable
 fun VideoInfoCard(viewModel: MainViewModel) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                AsyncImage(
-                    model = viewModel.videoThumbnail,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(120.dp, 68.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surface),
-                    contentScale = ContentScale.Crop
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = viewModel.videoTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (viewModel.videoDuration.isNotEmpty()) {
-                            SuggestionChip(
-                                onClick = {},
-                                label = { Text(viewModel.videoDuration) },
-                                icon = { Icon(Icons.Default.Timer, null, modifier = Modifier.size(14.dp)) }
-                            )
+    Box {
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp, 68.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable(enabled = viewModel.videoPreviewUrl != null) {
+                                viewModel.showPreview = true
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = viewModel.videoThumbnail,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        if (viewModel.videoPreviewUrl != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.Black.copy(alpha = 0.6f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
                         }
-                        if (viewModel.videoSize.isNotEmpty()) {
-                            SuggestionChip(
-                                onClick = {},
-                                label = { Text(viewModel.videoSize) },
-                                icon = { Icon(Icons.Default.Storage, null, modifier = Modifier.size(14.dp)) }
-                            )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = viewModel.videoTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (viewModel.videoDuration.isNotEmpty()) {
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = { Text(viewModel.videoDuration) },
+                                    icon = { Icon(Icons.Default.Timer, null, modifier = Modifier.size(14.dp)) }
+                                )
+                            }
+                            if (viewModel.videoSize.isNotEmpty()) {
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = { Text(viewModel.videoSize) },
+                                    icon = { Icon(Icons.Default.Storage, null, modifier = Modifier.size(14.dp)) }
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            Button(
-                onClick = { viewModel.downloadVideo() },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !viewModel.isDownloading,
-                shape = RoundedCornerShape(16.dp),
-                contentPadding = PaddingValues(vertical = 12.dp)
-            ) {
-                Icon(Icons.Default.Download, null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.download), fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = { viewModel.downloadVideo() },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !viewModel.isDownloading,
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(Icons.Default.Download, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.download), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        IconButton(
+            onClick = { viewModel.clearVideoInfo() },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+        ) {
+            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cancel))
+        }
+    }
+}
+
+@Composable
+fun VideoPreviewDialog(url: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(url))
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Black
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = true
+                            setBackgroundColor(0x00000000)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                ) {
+                    Icon(Icons.Default.Close, null, tint = Color.White)
+                }
             }
         }
     }
@@ -465,8 +613,15 @@ fun SettingsDialog(viewModel: MainViewModel) {
     var tempEmbedChapters by remember { mutableStateOf(viewModel.embedChapters) }
     var tempRetriesCount by remember { mutableStateOf(viewModel.retriesCount.toFloat()) }
     var tempWifiOnly by remember { mutableStateOf(viewModel.wifiOnly) }
-    var showAdvancedQuality by remember { mutableStateOf(false) }
-    
+
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val tabs = listOf(
+        R.string.general to Icons.Default.Settings,
+        R.string.quality to Icons.Default.HighQuality,
+        R.string.features to Icons.Default.LibraryAdd,
+        R.string.advanced_quality to Icons.Default.Tune
+    )
+
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
         onResult = { uri ->
@@ -499,8 +654,8 @@ fun SettingsDialog(viewModel: MainViewModel) {
                         TextButton(
                             onClick = {
                                 viewModel.saveSettings(
-                                    tempVideoQuality, tempAudioQuality, 
-                                    tempMetadata, tempThumbnail, tempSubtitles, 
+                                    tempVideoQuality, tempAudioQuality,
+                                    tempMetadata, tempThumbnail, tempSubtitles,
                                     tempPlaylist, tempSponsorBlock, tempCookies,
                                     tempLanguage, tempTheme, tempDynamic,
                                     tempCustomPath, tempVideoFps,
@@ -516,219 +671,217 @@ fun SettingsDialog(viewModel: MainViewModel) {
                     }
                 )
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                PrimaryScrollableTabRow(
+                    selectedTabIndex = selectedTab,
+                    edgePadding = 16.dp,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    indicator = { TabRowDefaults.PrimaryIndicator(modifier = Modifier.tabIndicatorOffset(selectedTab)) }
                 ) {
-                    SettingsSection(title = stringResource(R.string.general), icon = Icons.Default.Language) {
-                        Text(stringResource(R.string.language), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        QualitySelector(
-                            options = AppLanguage.entries.toList(),
-                            selectedOption = tempLanguage,
-                            onOptionSelected = { tempLanguage = it },
-                            label = { Text(stringResource(it.labelRes), maxLines = 1, fontSize = 11.sp) }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        SettingsSwitchItem(
-                            title = stringResource(R.string.wifi_only_title),
-                            desc = stringResource(R.string.wifi_only_desc),
-                            icon = Icons.Default.Wifi,
-                            checked = tempWifiOnly,
-                            onCheckedChange = { tempWifiOnly = it }
+                    tabs.forEachIndexed { index, (titleRes, icon) ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { Text(stringResource(titleRes), style = MaterialTheme.typography.labelLarge) },
+                            icon = { Icon(icon, null, modifier = Modifier.size(20.dp)) }
                         )
                     }
+                }
 
-                    SettingsSection(title = stringResource(R.string.appearance), icon = Icons.Default.Palette) {
-                        Text(stringResource(R.string.theme), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        QualitySelector(
-                            options = ThemeMode.entries.toList(),
-                            selectedOption = tempTheme,
-                            onOptionSelected = { tempTheme = it },
-                            label = { Text(stringResource(it.labelRes), maxLines = 1, fontSize = 11.sp) }
-                        )
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        SettingsSwitchItem(
-                            title = stringResource(R.string.dynamic_colors),
-                            desc = stringResource(R.string.dynamic_colors_desc),
-                            icon = Icons.Default.ColorLens,
-                            checked = tempDynamic,
-                            onCheckedChange = { tempDynamic = it }
-                        )
-                    }
-
-                    SettingsSection(title = stringResource(R.string.storage), icon = Icons.Default.FolderOpen) {
-                        Column(modifier = Modifier.fillMaxWidth().clickable { folderPickerLauncher.launch(null) }.padding(vertical = 4.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Box(modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.FolderOpen, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(stringResource(R.string.custom_path), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                                    val displayPath = if (tempCustomPath.startsWith("content://")) {
-                                        Uri.parse(tempCustomPath).path ?: tempCustomPath
-                                    } else tempCustomPath
-                                    Text(
-                                        text = stringResource(R.string.selected_folder_label, displayPath),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
+                Box(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        when (selectedTab) {
+                            0 -> { // General
+                                SettingsSection(title = stringResource(R.string.general), icon = Icons.Default.Language) {
+                                    Text(stringResource(R.string.language), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    QualitySelector(
+                                        options = AppLanguage.entries.toList(),
+                                        selectedOption = tempLanguage,
+                                        onOptionSelected = { tempLanguage = it },
+                                        label = { Text(stringResource(it.labelRes), maxLines = 1, fontSize = 11.sp) }
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SettingsSwitchItem(
+                                        title = stringResource(R.string.wifi_only_title),
+                                        desc = stringResource(R.string.wifi_only_desc),
+                                        icon = Icons.Default.Wifi,
+                                        checked = tempWifiOnly,
+                                        onCheckedChange = { tempWifiOnly = it }
                                     )
                                 }
-                                Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    }
 
-                    SettingsSection(title = stringResource(R.string.quality), icon = Icons.Default.HighQuality) {
-                        Text(stringResource(R.string.video_quality), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        QualitySelector(
-                            options = VideoQuality.entries.toList(),
-                            selectedOption = tempVideoQuality,
-                            onOptionSelected = { tempVideoQuality = it },
-                            label = { 
-                                val label = if (it == VideoQuality.Best) stringResource(R.string.quality_best) else it.name.replace("P", "") + "p"
-                                Text(label, maxLines = 1, fontSize = 11.sp) 
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(stringResource(R.string.audio_quality), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        val audioOptions = listOf("Best", "320K", "256K", "192K", "128K")
-                        QualitySelector(
-                            options = audioOptions,
-                            selectedOption = tempAudioQuality,
-                            onOptionSelected = { tempAudioQuality = it },
-                            label = { 
-                                val label = if (it == "Best") stringResource(R.string.quality_best) else it
-                                Text(label, maxLines = 1, fontSize = 11.sp) 
-                            }
-                        )
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedCard(
-                            onClick = { showAdvancedQuality = !showAdvancedQuality },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Text(stringResource(R.string.show_advanced), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                Icon(if (showAdvancedQuality) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
+                                SettingsSection(title = stringResource(R.string.appearance), icon = Icons.Default.Palette) {
+                                    Text(stringResource(R.string.theme), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    QualitySelector(
+                                        options = ThemeMode.entries.toList(),
+                                        selectedOption = tempTheme,
+                                        onOptionSelected = { tempTheme = it },
+                                        label = { Text(stringResource(it.labelRes), maxLines = 1, fontSize = 11.sp) }
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SettingsSwitchItem(
+                                        title = stringResource(R.string.dynamic_colors),
+                                        desc = stringResource(R.string.dynamic_colors_desc),
+                                        icon = Icons.Default.ColorLens,
+                                        checked = tempDynamic,
+                                        onCheckedChange = { tempDynamic = it }
+                                    )
+                                }
 
-                    AnimatedVisibility(visible = showAdvancedQuality) {
-                        SettingsSection(title = stringResource(R.string.advanced_quality), icon = Icons.Default.Tune) {
-                            Text(stringResource(R.string.video_fps), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                            val fpsOptions = listOf("Auto", "30", "60")
-                            QualitySelector(
-                                options = fpsOptions,
-                                selectedOption = tempVideoFps,
-                                onOptionSelected = { tempVideoFps = it },
-                                label = { Text(it, fontSize = 11.sp) }
-                            )
-                            
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(stringResource(R.string.video_codec), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                            QualitySelector(
-                                options = VideoCodecPreference.entries.toList(),
-                                selectedOption = tempCodecPref,
-                                onOptionSelected = { tempCodecPref = it },
-                                label = { Text(stringResource(it.labelRes), fontSize = 11.sp) }
-                            )
-                            
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(stringResource(R.string.retries_label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Slider(
-                                    value = tempRetriesCount,
-                                    onValueChange = { tempRetriesCount = it },
-                                    valueRange = 0f..50f,
-                                    steps = 49,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(tempRetriesCount.toInt().toString(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(stringResource(R.string.concurrent_fragments), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Slider(
-                                    value = tempConcurrentFragments,
-                                    onValueChange = { tempConcurrentFragments = it },
-                                    valueRange = 1f..16f,
-                                    steps = 14,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(tempConcurrentFragments.toInt().toString(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
-                            Text(stringResource(R.string.fragments_desc), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-
-                    SettingsSection(title = stringResource(R.string.engine), icon = Icons.Default.Build) {
-                        Button(
-                            onClick = { viewModel.updateEngine() },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !viewModel.isEngineUpdating,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            if (viewModel.isEngineUpdating) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.SystemUpdate, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.update_ytdlp))
-                            }
-                        }
-                        if (viewModel.engineUpdateStatus.isNotEmpty()) {
-                            Text(viewModel.engineUpdateStatus, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                        }
-                    }
-
-                    SettingsSection(title = stringResource(R.string.features), icon = Icons.Default.LibraryAdd) {
-                        SettingsSwitchItem(stringResource(R.string.metadata_title), stringResource(R.string.metadata_desc), Icons.Default.Info, tempMetadata) { tempMetadata = it }
-                        SettingsSwitchItem(stringResource(R.string.thumbnails_title), stringResource(R.string.thumbnails_desc), Icons.Default.Image, tempThumbnail) { tempThumbnail = it }
-                        SettingsSwitchItem(stringResource(R.string.subtitles_title), stringResource(R.string.subtitles_desc), Icons.Default.Subtitles, tempSubtitles) { tempSubtitles = it }
-                        SettingsSwitchItem(stringResource(R.string.sponsorblock_title), stringResource(R.string.sponsorblock_desc), Icons.Default.AdUnits, tempSponsorBlock) { tempSponsorBlock = it }
-                        SettingsSwitchItem(stringResource(R.string.playlists_title), stringResource(R.string.playlists_desc), Icons.AutoMirrored.Filled.PlaylistPlay, tempPlaylist) { tempPlaylist = it }
-                        
-                        SettingsSwitchItem(
-                            title = stringResource(R.string.embed_chapters),
-                            desc = stringResource(R.string.embed_chapters_desc),
-                            icon = Icons.Default.Bookmarks,
-                            checked = tempEmbedChapters,
-                            onCheckedChange = { tempEmbedChapters = it }
-                        )
-
-                        SettingsSwitchItem(
-                            title = stringResource(R.string.cookies_title), 
-                            desc = stringResource(R.string.cookies_desc), 
-                            icon = Icons.Default.VpnKey, 
-                            checked = tempCookies,
-                            onCheckedChange = { tempCookies = it },
-                            action = if (tempCookies) {
-                                {
-                                    TextButton(
-                                        onClick = { showCookiesInput = true },
-                                        contentPadding = PaddingValues(horizontal = 8.dp),
-                                        modifier = Modifier.height(32.dp)
-                                    ) {
-                                        Text(stringResource(R.string.edit), style = MaterialTheme.typography.labelLarge)
+                                SettingsSection(title = stringResource(R.string.storage), icon = Icons.Default.FolderOpen) {
+                                    Column(modifier = Modifier.fillMaxWidth().clickable { folderPickerLauncher.launch(null) }.padding(vertical = 4.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Box(modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.FolderOpen, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(stringResource(R.string.custom_path), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                                val displayPath = if (tempCustomPath.startsWith("content://")) {
+                                                    Uri.parse(tempCustomPath).path ?: tempCustomPath
+                                                } else tempCustomPath
+                                                Text(
+                                                    text = stringResource(R.string.selected_folder_label, displayPath),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                        }
                                     }
                                 }
-                            } else null
-                        )
+                            }
+                            1 -> { // Quality
+                                SettingsSection(title = stringResource(R.string.quality), icon = Icons.Default.HighQuality) {
+                                    Text(stringResource(R.string.video_quality), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    QualitySelector(
+                                        options = VideoQuality.entries.toList(),
+                                        selectedOption = tempVideoQuality,
+                                        onOptionSelected = { tempVideoQuality = it },
+                                        label = {
+                                            val label = if (it == VideoQuality.Best) stringResource(R.string.quality_best) else it.name.replace("P", "") + "p"
+                                            Text(label, maxLines = 1, fontSize = 11.sp)
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(stringResource(R.string.audio_quality), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    val audioOptions = listOf("Best", "320K", "256K", "192K", "128K")
+                                    QualitySelector(
+                                        options = audioOptions,
+                                        selectedOption = tempAudioQuality,
+                                        onOptionSelected = { tempAudioQuality = it },
+                                        label = {
+                                            val label = if (it == "Best") stringResource(R.string.quality_best) else it
+                                            Text(label, maxLines = 1, fontSize = 11.sp)
+                                        }
+                                    )
+                                }
+                                
+                                SettingsSection(title = stringResource(R.string.advanced_quality), icon = Icons.Default.Tune) {
+                                    Text(stringResource(R.string.video_fps), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    val fpsOptions = listOf("Auto", "30", "60")
+                                    QualitySelector(
+                                        options = fpsOptions,
+                                        selectedOption = tempVideoFps,
+                                        onOptionSelected = { tempVideoFps = it },
+                                        label = { Text(it, fontSize = 11.sp) }
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(stringResource(R.string.video_codec), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    QualitySelector(
+                                        options = VideoCodecPreference.entries.toList(),
+                                        selectedOption = tempCodecPref,
+                                        onOptionSelected = { tempCodecPref = it },
+                                        label = { Text(stringResource(it.labelRes), fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                            2 -> { // Features
+                                SettingsSection(title = stringResource(R.string.features), icon = Icons.Default.LibraryAdd) {
+                                    SettingsSwitchItem(stringResource(R.string.metadata_title), stringResource(R.string.metadata_desc), Icons.Default.Info, tempMetadata) { tempMetadata = it }
+                                    SettingsSwitchItem(stringResource(R.string.thumbnails_title), stringResource(R.string.thumbnails_desc), Icons.Default.Image, tempThumbnail) { tempThumbnail = it }
+                                    SettingsSwitchItem(stringResource(R.string.subtitles_title), stringResource(R.string.subtitles_desc), Icons.Default.Subtitles, tempSubtitles) { tempSubtitles = it }
+                                    SettingsSwitchItem(stringResource(R.string.sponsorblock_title), stringResource(R.string.sponsorblock_desc), Icons.Default.AdUnits, tempSponsorBlock) { tempSponsorBlock = it }
+                                    SettingsSwitchItem(stringResource(R.string.playlists_title), stringResource(R.string.playlists_desc), Icons.AutoMirrored.Filled.PlaylistPlay, tempPlaylist) { tempPlaylist = it }
+                                    SettingsSwitchItem(stringResource(R.string.embed_chapters), stringResource(R.string.embed_chapters_desc), Icons.Default.Bookmarks, tempEmbedChapters) { tempEmbedChapters = it }
+                                }
+                            }
+                            3 -> { // Advanced
+                                SettingsSection(title = stringResource(R.string.engine), icon = Icons.Default.Build) {
+                                    Button(
+                                        onClick = { viewModel.updateEngine() },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = !viewModel.isEngineUpdating,
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        if (viewModel.isEngineUpdating) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                        } else {
+                                            Icon(Icons.Default.SystemUpdate, null)
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(stringResource(R.string.update_ytdlp))
+                                        }
+                                    }
+                                    if (viewModel.engineUpdateStatus.isNotEmpty()) {
+                                        Text(viewModel.engineUpdateStatus, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                                    }
+                                }
+
+                                SettingsSection(title = stringResource(R.string.advanced_quality), icon = Icons.Default.Tune) {
+                                    Text(stringResource(R.string.retries_label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Slider(
+                                            value = tempRetriesCount,
+                                            onValueChange = { tempRetriesCount = it },
+                                            valueRange = 0f..50f,
+                                            steps = 49,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(tempRetriesCount.toInt().toString(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(stringResource(R.string.concurrent_fragments), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Slider(
+                                            value = tempConcurrentFragments,
+                                            onValueChange = { tempConcurrentFragments = it },
+                                            valueRange = 1f..16f,
+                                            steps = 14,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(tempConcurrentFragments.toInt().toString(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+
+                                SettingsSection(title = stringResource(R.string.cookies_title), icon = Icons.Default.VpnKey) {
+                                    SettingsSwitchItem(
+                                        title = stringResource(R.string.cookies_title),
+                                        desc = stringResource(R.string.cookies_desc),
+                                        icon = Icons.Default.VpnKey,
+                                        checked = tempCookies,
+                                        onCheckedChange = { tempCookies = it },
+                                        action = if (tempCookies) {
+                                            {
+                                                TextButton(
+                                                    onClick = { showCookiesInput = true },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Text(stringResource(R.string.edit), style = MaterialTheme.typography.labelLarge)
+                                                }
+                                            }
+                                        } else null
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -779,11 +932,11 @@ fun SettingsSection(title: String, icon: ImageVector, content: @Composable Colum
 
 @Composable
 fun SettingsSwitchItem(
-    title: String, 
-    desc: String, 
-    icon: ImageVector, 
-    checked: Boolean, 
-    modifier: Modifier = Modifier, 
+    title: String,
+    desc: String,
+    icon: ImageVector,
+    checked: Boolean,
+    modifier: Modifier = Modifier,
     action: (@Composable () -> Unit)? = null,
     onCheckedChange: (Boolean) -> Unit
 ) {

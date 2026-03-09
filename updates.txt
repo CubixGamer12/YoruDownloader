@@ -1,0 +1,7 @@
+[UPDATES] 1.1
+- Added "Enter" keyboard action support to the main URL/Search text field.
+- Added a close button (X) to the VideoInfoCard to allow dismissing the selected video.
+- Improved video data fetching performance.
+- Added real-time YouTube search suggestions.
+- Added Video Preview (Mini Player) feature – tap the thumbnail to preview the video before downloading.
+- Redesigned Settings dialog with a tabbed interface for better organization.

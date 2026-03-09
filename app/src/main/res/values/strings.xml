@@ -97,4 +97,7 @@
     <string name="wifi_only_title">Wi-Fi Only</string>
     <string name="wifi_only_desc">Download only when connected to Wi-Fi</string>
     <string name="error_no_wifi">\"Wi-Fi Only\" is enabled, but no Wi-Fi connection found</string>
+
+    <string name="video_preview">Video Preview</string>
+    <string name="play_preview">Play Preview</string>
 </resources>

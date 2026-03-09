@@ -17,7 +17,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.yausername.youtubedl_android.mapper.VideoInfo
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collectLatest
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -37,9 +40,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var videoThumbnail by mutableStateOf("")
     var videoDuration by mutableStateOf("")
     var videoSize by mutableStateOf("")
+    var videoPreviewUrl by mutableStateOf<String?>(null)
+    var showPreview by mutableStateOf(false)
+
+    private var lastVideoInfo by mutableStateOf<VideoInfo?>(null)
     
     // Search results management and pagination state
     var searchResults = mutableStateListOf<SearchResult>()
+    var searchSuggestions = mutableStateListOf<String>()
     var isSearching by mutableStateOf(false)
     var isLoadingMore by mutableStateOf(false)
     var canLoadMore by mutableStateOf(false)
@@ -81,7 +89,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var engineUpdateStatus by mutableStateOf("")
 
     private var currentTaskId: String? = null
-    
+
     // Service connection for background download operations
     private var downloadService: DownloadService? = null
     private val serviceConnection = object : ServiceConnection {
@@ -118,6 +126,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val intent = Intent(application, DownloadService::class.java)
         application.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         applyLanguage(selectedLanguage)
+
+        // Reactively update video size when selection or info changes
+        viewModelScope.launch {
+            snapshotFlow { Triple(selectedFormat, selectedVideoQuality, lastVideoInfo) }
+                .collectLatest { 
+                    updateVideoSize()
+                }
+        }
     }
 
     private fun parseProgressLine(line: String) {
@@ -242,6 +258,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var suggestionJob: Job? = null
+    fun fetchSuggestions(query: String) {
+        if (query.isBlank() || query.startsWith("http")) {
+            searchSuggestions.clear()
+            return
+        }
+
+        suggestionJob?.cancel()
+        suggestionJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(300)
+            try {
+                val url = "https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q=${Uri.encode(query)}"
+                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                val text = connection.inputStream.bufferedReader().readText()
+                
+                val startIndex = text.indexOf("[")
+                val endIndex = text.lastIndexOf("]")
+                if (startIndex != -1 && endIndex != -1) {
+                    val jsonArray = JSONArray(text.substring(startIndex, endIndex + 1))
+                    val suggestionsArray = jsonArray.getJSONArray(1)
+                    val list = mutableListOf<String>()
+                    for (i in 0 until minOf(suggestionsArray.length(), 10)) {
+                        val suggestion = suggestionsArray.get(i)
+                        if (suggestion is JSONArray) {
+                            list.add(suggestion.getString(0))
+                        } else if (suggestion is String) {
+                            list.add(suggestion)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        searchSuggestions.clear()
+                        searchSuggestions.addAll(list)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Failed to fetch suggestions", e)
+            }
+        }
+    }
+
     fun searchYoutube(query: String) {
         // Initialize new YouTube search task
         if (query.isBlank()) return
@@ -250,6 +306,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isSearching = true
         canLoadMore = false
         searchResults.clear()
+        searchSuggestions.clear()
         performSearch()
     }
 
@@ -342,11 +399,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Fetch detailed video information before downloading
         val trimmedUrl = url.trim()
         if (trimmedUrl.isEmpty()) {
-            videoTitle = ""
-            videoThumbnail = ""
-            videoDuration = ""
-            videoSize = ""
-            status = ""
+            clearVideoInfo()
             return
         }
         
@@ -356,13 +409,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         fetchJob?.cancel()
         fetchJob = viewModelScope.launch {
-            delay(800)
+            delay(500) // Reduced delay for faster response
             status = getApplication<Application>().getString(R.string.status_fetching)
             try {
                 val request = YoutubeDLRequest(trimmedUrl)
                 request.addOption("--no-check-certificate")
                 request.addOption("--no-mtime")
                 request.addOption("--force-ipv4")
+                request.addOption("--no-warnings")
+                request.addOption("--no-call-home")
+                request.addOption("--youtube-skip-dash-manifest")
                 request.addOption("--extractor-args", "youtube:player_client=web")
                 
                 if (useCookies) {
@@ -383,11 +439,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     YoutubeDL.getInstance().getInfo(request)
                 }
                 
+                lastVideoInfo = info
                 videoTitle = info.title ?: getApplication<Application>().getString(R.string.no_title)
                 if (info.thumbnail != null) videoThumbnail = info.thumbnail!!
                 videoDuration = if (info.duration > 0) formatDuration(info.duration) else ""
-                videoSize = if (info.fileSize > 0) formatFileSize(info.fileSize) else ""
                 
+                // Set preview URL - find lowest quality video for fast loading
+                videoPreviewUrl = info.url
+                if (videoPreviewUrl == null) {
+                    videoPreviewUrl = info.formats?.filter { it.vcodec != "none" }
+                        ?.minByOrNull { it.height ?: 1000 }?.url
+                }
+
+                updateVideoSize()
                 status = getApplication<Application>().getString(R.string.status_ready)
             } catch (e: Exception) {
                 if (e !is CancellationException) {
@@ -395,6 +459,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    private fun updateVideoSize() {
+        val info = lastVideoInfo ?: return
+        val formats = info.formats ?: return
+        
+        val estimatedSizeInBytes = if (selectedFormat.isAudio) {
+            // Find best audio-only format for selected extension
+            val audioFormats = formats.filter { it.acodec != "none" && it.vcodec == "none" }
+            val match = audioFormats.filter { it.ext == selectedFormat.ext }.maxByOrNull { it.fileSize }
+                ?: audioFormats.maxByOrNull { it.fileSize }
+            match?.fileSize ?: 0L
+        } else {
+            // Estimate combined size for video and audio
+            val maxHeight = when (selectedVideoQuality) {
+                VideoQuality.P1080 -> 1080
+                VideoQuality.P720 -> 720
+                VideoQuality.P480 -> 480
+                else -> 9999
+            }
+            
+            val videoMatch = formats.filter { 
+                it.vcodec != "none" && (it.height ?: 0) <= maxHeight && 
+                (selectedFormat.ext == "mkv" || it.ext == selectedFormat.ext)
+            }.maxByOrNull { it.height ?: 0 }
+            
+            val audioMatch = formats.filter { 
+                it.acodec != "none" && it.vcodec == "none" 
+            }.maxByOrNull { it.fileSize }
+            
+            val vSize = videoMatch?.fileSize ?: 0L
+            val aSize = audioMatch?.fileSize ?: 0L
+            
+            if (vSize > 0) vSize + aSize else info.fileSize
+        }
+        
+        videoSize = if (estimatedSizeInBytes > 0) formatFileSize(estimatedSizeInBytes) else ""
+    }
+
+    fun clearVideoInfo() {
+        videoTitle = ""
+        videoThumbnail = ""
+        videoDuration = ""
+        videoSize = ""
+        status = ""
+        url = ""
+        lastVideoInfo = null
+        searchSuggestions.clear()
+        videoPreviewUrl = null
+        showPreview = false
     }
 
     private fun formatFileSize(size: Long): String {

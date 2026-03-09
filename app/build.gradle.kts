@@ -36,9 +36,9 @@ android {
     }
     packaging {
         jniLibs {
-            // Ustawiamy na true, aby wymusić wypakowanie bibliotek .so.
-            // Jest to niezbędne dla ffprobe/ffmpeg, które są uruchamiane jako procesy zewnętrzne
-            // i muszą mieć dostęp do bibliotek zależnych na systemie plików.
+            // Force extraction of .so libraries.
+            // This is required for ffprobe/ffmpeg which are executed as external processes
+            // and need access to shared libraries on the file system.
             useLegacyPackaging = true
         }
         resources {
@@ -65,6 +65,9 @@ dependencies {
     implementation(libs.youtubedl.ffmpeg)
     
     implementation(libs.coil.compose)
+
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
