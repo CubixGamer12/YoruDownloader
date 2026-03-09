@@ -32,9 +32,6 @@ YoruDownloader is a modern, high-performance media acquisition tool built with J
 <td align="center">
 <a href="https://github.com/CubixGamer12/YoruDownloader/releases/latest"><img src="https://github.com/machiav3lli/oandbackupx/blob/034b226cea5c1b30eb4f6a6f313e4dadcbb0ece4/badge_github.png" alt="Get it on GitHub" height="82"></a>
 </td>
-<td align="center">
-<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/CubixGamer12/YoruDownloader/"><img src="https://github.com/ImranR98/Obtainium/blob/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium Maybe layter or fdroid" height="50"></a>
-</td>
 </tr>
 </table>
 
