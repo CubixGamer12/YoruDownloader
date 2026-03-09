@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/CubixGamer12/YoruDownloader/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png" width="160" height="160" style="display: block; margin: 0 auto"/>
+<img src="https://raw.githubusercontent.com/CubixGamer12/YoruDownloader/main/icon-1.png" width="160" height="160" style="display: block; margin: 0 auto"/>
 <h1>YoruDownloader</h1>
 <p>Professional media downloader for Android</p>
 
